@@ -1,0 +1,44 @@
+# Pseudo-label generation over the unlabeled target pool (D4).
+#
+#   python scripts/pseudo_label.py --cfg config/pseudo_label.yaml
+#
+# Roughly 2 h for 200,000 tiles on one GPU. Interrupted runs resume from the
+# same command; masks already on disk are skipped.
+
+# ── I/O ───────────────────────────────────────────────────────────────────────
+# tile_index is the released record of which D4 tiles were labeled. It is the
+# selection, not an input to be re-derived: the classifier saturates, so the
+# original cut cannot be reproduced by re-running it.
+tile_index:   "release/tile_index.csv.gz"
+lmdb_path:    "data/d4_tiles.lmdb"
+out_dir:      "outputs/pseudo_labels"
+
+# The teacher: the Src→Tgt U-Net/ResNet-50. Architecture is read from the
+# checkpoint's own cfg, so this cannot silently load as another model.
+checkpoint:   "data/checkpoints/b1-src-tgt.pt"
+
+# ── Tile exclusion ────────────────────────────────────────────────────────────
+# The index was built after exclusion, so this normally drops nothing; it is an
+# assertion. Without it, held-out evaluation tiles can be pseudo-labeled and
+# enter the student's training set. Do not disable.
+exclude_tiles_gpkg:  "release/d3_saudi_buildings.gpkg"
+exclude_tiles_layer: "tiles"
+
+# ── Label generation ──────────────────────────────────────────────────────────
+# Threshold low, split with a probability-seeded watershed, polygonise, smooth,
+# rasterise back to binary. Degree tolerances are ~0.3 m at this latitude.
+seg_threshold:      0.20      # low: captures full footprints including edges
+min_distance:       10        # watershed seed separation (px, ~2.7 m)
+min_area_px:        30        # drop instances smaller than this (~2.2 m²)
+min_area_m2:        5.0       # drop polygons smaller than this
+simplify_tol:       3.0e-6    # Douglas-Peucker tolerance (degrees)
+post_buffer_smooth: 3.0e-6    # buffer in/out smoothing (degrees)
+
+# Reported only, as a check against data.pseudo_min_pos_frac in
+# train_pseudolabel.yaml. Changing it here does not affect which tiles are written.
+report_min_pos_frac: 0.02
+
+img_mean: [0.2186, 0.2315, 0.4944]
+img_std:  [0.2308, 0.2263, 0.2268]
+
+batch_size: 16

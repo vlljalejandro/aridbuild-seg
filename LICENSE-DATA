@@ -1,0 +1,38 @@
+Building footprint annotations for arid environments (Saudi Arabia)
+
+Copyright (c) 2026 Alejandro Vallejo, King Abdullah University of Science and
+Technology.
+
+WHAT THIS COVERS
+
+  release/d3_saudi_buildings.gpkg   building footprint polygons and tile records
+  release/masks/                    binary masks rasterized from those polygons
+  release/splits.csv                train/validation/test assignment
+  release/tile_index.csv.gz         D4 tile identifiers and positive fractions
+  release/d4_coverage.gpkg          D4 spatial extent
+  release/per_tile_counts.npz       per-tile evaluation counts
+
+These are original work: annotations produced for this study, and artifacts
+derived from them.
+
+WHAT THIS DOES NOT COVER
+
+  The tile identifiers (x18, y18, quadkey) locate the tiles these annotations
+  describe. Obtaining the corresponding imagery, and complying with the terms
+  of whichever provider supplies it, is the user's responsibility.
+
+  The CrowdAI Mapping Challenge and Inria Aerial Image Labeling datasets are
+  covered by their own licenses.
+
+LICENSE
+
+  Creative Commons Attribution 4.0 International (CC BY 4.0)
+  https://creativecommons.org/licenses/by/4.0/
+
+  You may share and adapt this material for any purpose, including
+  commercially, provided you give appropriate credit, link to the license, and
+  indicate if changes were made.
+
+CITATION
+
+[Blank]

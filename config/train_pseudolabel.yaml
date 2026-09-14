@@ -1,0 +1,123 @@
+# Self-training config — the two configurations that use pseudo-labels.
+#
+#   Src+PL       --stage supervised    source + pseudo-labels, no labeled
+#                                      target tile at all
+#   Src+PL→Tgt   --stage pseudolabel   the above, then target fine-tune
+#
+# Run scripts/pseudo_label.py first. One GPU per run:
+#
+#   python scripts/train.py --cfg config/train_pseudolabel.yaml \
+#     --stage pseudolabel --set model.name=SwinTFPN \
+#     model.encoder_name=swin_tiny_patch4_window7_224 run_name=b3-src-pl \
+#     loader.num_workers=0
+
+project:  "aridbuild-seg"
+run_name: "b1-src-pl"
+seed:     42
+
+# ── Model ─────────────────────────────────────────────────────────────────────
+# decoder_channels is B1 only, embed_dim B2, fpn_dim B3; each ignores the
+# others. decoder_channels is a list, so it cannot be set with --set.
+model:
+  name:             "UNetResNet50"
+  encoder_name:     "resnet50.a1_in1k"
+  pretrained:       true                       # ImageNet-1K
+  decoder_channels: [256, 128, 64, 32, 16]
+  embed_dim:        256
+  fpn_dim:          256
+
+# ── Data ──────────────────────────────────────────────────────────────────────
+# See data/README.md. Splits are 80/10/10 at `seed`.
+data:
+  # D1 — CrowdAI Mapping Challenge
+  supervised_sources:
+    - image_dir: "data/mapping-challenge-v2.0/train/images"
+      ann_file:  "data/mapping-challenge-v2.0/train/annotations/annotation_non_augmented.json"
+    - image_dir: "data/mapping-challenge-v2.0/val/images"
+      ann_file:  "data/mapping-challenge-v2.0/val/annotations/annotation_non_augmented.json"
+    - image_dir: "data/mapping-challenge-v2.0/test/images"
+      ann_file:  "data/mapping-challenge-v2.0/test/annotations/annotation_non_augmented.json"
+
+  # D2 — Inria, cropped on the fly
+  inria_sources:
+    - train_dir: "data/AerialImageDataset/train"
+
+  # D3 — labeled target tiles
+  finetune_sources:
+    - image_dir: "data/d3/images"
+      ann_file:  "data/d3/annotations/d3_tiles.json"
+
+  # Pseudo-labeled tiles go into the TRAIN split only. Val and test stay clean
+  # D1+D2, so checkpoint selection never sees target data.
+  pseudo_lmdb_path:    "data/d4_tiles.lmdb"
+  pseudo_mask_dir:     "outputs/pseudo_labels/masks"
+  pseudo_manifest:     "outputs/pseudo_labels/manifest.csv"
+  pseudo_min_pos_frac: 0.02     # drop near-empty tiles at training time
+
+  img_mean: [0.2186, 0.2315, 0.4944]
+  img_std:  [0.2308, 0.2263, 0.2268]
+  val_split:  0.10
+  test_split: 0.10
+
+loader:
+  batch_size:  8
+  num_workers: 0     # required: the pseudo-label loader holds an LMDB handle
+                     # alongside the Inria TIF reader and deadlocks otherwise
+  pin_memory:  true
+
+# ── Loss ──────────────────────────────────────────────────────────────────────
+loss:
+  focal_weight: 1.0
+  dice_weight:  1.0
+  dist_weight:  0.5      # auxiliary head, unused at inference; kept because
+                         # every released checkpoint was trained with it
+  focal_alpha:  0.25     # mixed: D1+D2 at 20.33%, pseudo-labels at 15.6%
+  focal_gamma:  2.0
+  dice_smooth:  1.0
+  ignore_index: null     # masks are binary
+
+# ── Supervised stage — D1 + D2 + pseudo-labels ────────────────────────────────
+supervised:
+  epochs: 50
+  optimizer:
+    name:             "AdamW"
+    lr:               1.0e-4
+    encoder_lr_scale: 0.5
+    weight_decay:     1.0e-4
+    betas:            [0.9, 0.999]
+  scheduler:
+    name:    "CosineAnnealingLR"
+    T_max:   50
+    eta_min: 1.0e-6
+  grad_clip:    1.0
+  log_interval: 50
+
+# ── Fine-tune stage — D3 ──────────────────────────────────────────────────────
+finetune:
+  epochs: 30
+  resume_from: ""        # empty falls through to
+                         # {checkpoint_dir}/{run_name}-supervised/best.pt and
+                         # hard-fails if missing
+  freeze_encoder_epochs: 0
+  loss:
+    focal_alpha:  0.07   # D3 is ~8% positive pixels
+    ignore_index: null
+  optimizer:
+    name:             "AdamW"
+    lr:               2.0e-5
+    encoder_lr_scale: 1.0
+    weight_decay:     1.0e-4
+    betas:            [0.9, 0.999]
+  scheduler:
+    name:    "CosineAnnealingLR"
+    T_max:   30
+    eta_min: 1.0e-7
+  grad_clip:    1.0
+  log_interval: 10
+
+eval:
+  threshold: 0.5
+
+checkpoint_dir: "outputs/checkpoints"
+wandb_project:  "aridbuild-seg"
+wandb_watch:    null     # "gradients" installs hooks that hang Swin-T
